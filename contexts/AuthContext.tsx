@@ -1,15 +1,22 @@
 "use client";
 
-import { createContext, useContext, useEffect, useState, useMemo, useRef } from "react";
-import { User } from "@supabase/supabase-js";
-import { createClient } from "@/utils/supabase/client";
-import { UserProfile, getUserProfile } from "@/lib/auth";
+import { createContext, useContext, useEffect, useState, useCallback, useRef } from "react";
+import sdk from "@farcaster/miniapp-sdk";
+import { UserProfile, getOrCreateProfile, getUserProfile } from "@/lib/auth";
 import toast from "react-hot-toast";
 
+export interface FarcasterUser {
+  fid: string;
+  username?: string;
+  displayName?: string;
+  pfpUrl?: string;
+}
+
 interface AuthContextType {
-  user: User | null;
+  user: FarcasterUser | null;
   profile: UserProfile | null;
   loading: boolean;
+  signIn: () => Promise<void>;
   signOut: () => Promise<void>;
   refreshProfile: () => Promise<void>;
 }
@@ -17,156 +24,156 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<User | null>(null);
+  const [user, setUser] = useState<FarcasterUser | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
-  const hasShownSignInToast = useRef(false);
-  const isInitialMount = useRef(true);
-  const supabase = useMemo(() => createClient(), []);
+  const initAttempted = useRef(false);
 
-  const refreshProfile = async () => {
+  // Initialize auth from Farcaster context
+  useEffect(() => {
+    if (initAttempted.current) return;
+    initAttempted.current = true;
+
+    const initializeAuth = async () => {
+      try {
+        console.log("🔵 AuthContext: Starting Farcaster initialization");
+
+        // Check for stored user first (faster UX)
+        const storedUser = localStorage.getItem("farcaster_user");
+        if (storedUser) {
+          try {
+            const parsed = JSON.parse(storedUser) as FarcasterUser;
+            setUser(parsed);
+            // Load profile in background
+            getUserProfile(parsed.fid)
+              .then(setProfile)
+              .catch((err) => console.error("Failed to load stored profile:", err));
+          } catch {
+            localStorage.removeItem("farcaster_user");
+          }
+        }
+
+        // Get fresh Farcaster context
+        const context = await sdk.context;
+        console.log("🔵 AuthContext: Farcaster context:", context);
+
+        if (context?.user) {
+          const farcasterUser: FarcasterUser = {
+            fid: String(context.user.fid),
+            username: context.user.username,
+            displayName: context.user.displayName,
+            pfpUrl: context.user.pfpUrl,
+          };
+
+          console.log("🔵 AuthContext: Farcaster user found:", farcasterUser);
+          setUser(farcasterUser);
+          localStorage.setItem("farcaster_user", JSON.stringify(farcasterUser));
+
+          // Get or create profile in database
+          try {
+            const userProfile = await getOrCreateProfile(
+              farcasterUser.fid,
+              farcasterUser.username || `user_${farcasterUser.fid}`,
+              farcasterUser.displayName,
+              farcasterUser.pfpUrl
+            );
+            setProfile(userProfile);
+            console.log("🔵 AuthContext: Profile loaded/created:", userProfile);
+          } catch (profileError) {
+            console.error("❌ Failed to get/create profile:", profileError);
+          }
+        } else {
+          console.log("🔵 AuthContext: No Farcaster user in context");
+        }
+      } catch (error) {
+        console.error("❌ Auth initialization error:", error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    initializeAuth();
+  }, []);
+
+  const handleSignIn = useCallback(async () => {
+    setLoading(true);
+    try {
+      // Use quickAuth to get a verified JWT token
+      const result = await sdk.experimental.quickAuth();
+
+      if (!result?.token) {
+        throw new Error("Failed to get authentication token");
+      }
+
+      // Verify the token with our backend
+      const response = await fetch("/api/auth", {
+        headers: {
+          Authorization: `Bearer ${result.token}`,
+        },
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || "Authentication failed");
+      }
+
+      const data = await response.json();
+
+      if (!data.success || !data.user?.fid) {
+        throw new Error("Invalid authentication response");
+      }
+
+      // Get fresh context for user details
+      const context = await sdk.context;
+
+      const farcasterUser: FarcasterUser = {
+        fid: String(data.user.fid),
+        username: context?.user?.username,
+        displayName: context?.user?.displayName,
+        pfpUrl: context?.user?.pfpUrl,
+      };
+
+      setUser(farcasterUser);
+      localStorage.setItem("farcaster_token", result.token);
+      localStorage.setItem("farcaster_user", JSON.stringify(farcasterUser));
+
+      // Get or create profile
+      const userProfile = await getOrCreateProfile(
+        farcasterUser.fid,
+        farcasterUser.username || `user_${farcasterUser.fid}`,
+        farcasterUser.displayName,
+        farcasterUser.pfpUrl
+      );
+      setProfile(userProfile);
+
+      toast.success("Signed in successfully!");
+    } catch (error) {
+      console.error("Sign in error:", error);
+      toast.error(error instanceof Error ? error.message : "Failed to sign in");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  const handleSignOut = useCallback(async () => {
+    localStorage.removeItem("farcaster_token");
+    localStorage.removeItem("farcaster_user");
+    setUser(null);
+    setProfile(null);
+    toast.success("Signed out successfully");
+  }, []);
+
+  const refreshProfile = useCallback(async () => {
     if (user) {
       try {
-        const userProfile = await getUserProfile(user.id);
+        const userProfile = await getUserProfile(user.fid);
         setProfile(userProfile);
       } catch (error) {
         console.error("Failed to refresh profile:", error);
         toast.error("Failed to load profile data");
       }
     }
-  };
-
-  useEffect(() => {
-    console.log("🔵 AuthContext: Starting initialization");
-
-    // Get initial session with getUser() instead of getSession()
-    const initializeAuth = async () => {
-      try {
-        console.log("🔵 AuthContext: Calling supabase.auth.getUser()");
-        const {
-          data: { user },
-          error,
-        } = await supabase.auth.getUser();
-
-        console.log("🔵 AuthContext: getUser result:", {
-          hasUser: !!user,
-          error,
-        });
-
-        if (error) {
-          console.error("❌ Auth error:", error);
-          setUser(null);
-          setProfile(null);
-          setLoading(false);
-          return;
-        }
-
-        setUser(user);
-
-        // Fetch profile AFTER setting user
-        if (user) {
-          console.log("🔵 AuthContext: Fetching user profile for:", user.id);
-          getUserProfile(user.id)
-            .then((userProfile) => {
-              console.log("🔵 AuthContext: Profile fetched:", userProfile);
-              setProfile(userProfile);
-            })
-            .catch((profileError) => {
-              console.error("❌ Profile error:", profileError);
-              // Don't show error for missing profile - user might be in signup flow
-            });
-        } else {
-          console.log("🔵 AuthContext: No user found");
-        }
-      } catch (error) {
-        console.error("❌ Auth initialization error:", error);
-        toast.error("Failed to initialize authentication");
-      } finally {
-        console.log("🔵 AuthContext: Initialization complete");
-        setLoading(false);
-      }
-    };
-
-    initializeAuth();
-
-    // Listen for auth changes - DO NOT make async calls inside this callback
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((event, session) => {
-      console.log("🔵 Auth state changed:", event);
-
-      const currentUser = session?.user ?? null;
-      setUser(currentUser);
-
-      // Skip toasts on initial mount (INITIAL_SESSION event)
-      if (isInitialMount.current && event === "INITIAL_SESSION") {
-        isInitialMount.current = false;
-        // Silently load profile if user exists
-        if (currentUser) {
-          getUserProfile(currentUser.id)
-            .then(setProfile)
-            .catch((error) => console.error("Failed to load profile:", error));
-        }
-        return;
-      }
-
-      // Handle different auth events
-      if (event === "SIGNED_OUT") {
-        setProfile(null);
-        hasShownSignInToast.current = false;
-        toast.success("Signed out successfully");
-      } else if (event === "SIGNED_IN") {
-        // Only show toast for actual new sign-ins, not token refreshes or tab switches
-        if (!hasShownSignInToast.current) {
-          toast.success("Signed in successfully!");
-          hasShownSignInToast.current = true;
-        }
-        // Fetch profile OUTSIDE the callback
-        if (currentUser) {
-          getUserProfile(currentUser.id)
-            .then(setProfile)
-            .catch((error) => console.error("Failed to load profile:", error));
-        }
-      } else if (event === "TOKEN_REFRESHED") {
-        // Silently refresh profile
-        if (currentUser) {
-          getUserProfile(currentUser.id)
-            .then(setProfile)
-            .catch((error) => console.error("Failed to refresh profile:", error));
-        }
-      } else if (event === "USER_UPDATED") {
-        if (currentUser) {
-          getUserProfile(currentUser.id)
-            .then(setProfile)
-            .catch((error) => console.error("Failed to update profile:", error));
-        }
-      } else {
-        // For other events, update profile if user exists
-        if (currentUser) {
-          getUserProfile(currentUser.id)
-            .then(setProfile)
-            .catch((error) => console.error("Profile error:", error));
-        } else {
-          setProfile(null);
-        }
-      }
-    });
-
-    return () => subscription.unsubscribe();
-  }, [supabase]);
-
-  const handleSignOut = async () => {
-    try {
-      const { error } = await supabase.auth.signOut();
-      if (error) throw error;
-
-      setUser(null);
-      setProfile(null);
-    } catch (error) {
-      console.error("Sign out error:", error);
-      toast.error(error instanceof Error ? error.message : "Failed to sign out");
-    }
-  };
+  }, [user]);
 
   return (
     <AuthContext.Provider
@@ -174,6 +181,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         user,
         profile,
         loading,
+        signIn: handleSignIn,
         signOut: handleSignOut,
         refreshProfile,
       }}

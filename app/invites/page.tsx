@@ -33,8 +33,8 @@ export default function InvitesPage() {
 
       setLoading(true);
       const [pending, sent] = await Promise.all([
-        getPendingInvites(user.id),
-        getSentInvites(user.id),
+        getPendingInvites(user.fid),
+        getSentInvites(user.fid),
       ]);
 
       setPendingInvites(pending);
@@ -46,7 +46,7 @@ export default function InvitesPage() {
 
     // Subscribe to new invites
     if (user) {
-      const unsubscribe = subscribeToInvites(user.id, () => {
+      const unsubscribe = subscribeToInvites(user.fid, () => {
         fetchInvites();
       });
 
@@ -74,7 +74,7 @@ export default function InvitesPage() {
       await declineInvite(inviteId);
       // Refresh invites
       if (user) {
-        const pending = await getPendingInvites(user.id);
+        const pending = await getPendingInvites(user.fid);
         setPendingInvites(pending);
       }
     } catch (error) {

@@ -50,11 +50,12 @@ export default function FriendsPage() {
   }, [user]);
 
   const loadData = async () => {
+    if (!user?.fid) return;
     try {
       const [friendsData, incomingData, outgoingData] = await Promise.all([
-        getFriends(),
-        getIncomingFriendRequests(),
-        getOutgoingFriendRequests(),
+        getFriends(user.fid),
+        getIncomingFriendRequests(user.fid),
+        getOutgoingFriendRequests(user.fid),
       ]);
       setFriends(friendsData);
       setIncomingRequests(incomingData);
@@ -77,7 +78,7 @@ export default function FriendsPage() {
       // Filter out self and existing friends
       const friendIds = new Set(friends.map(f => f.friend_id));
       const filtered = results.filter(
-        r => r.id !== user?.id && !friendIds.has(r.id)
+        r => r.id !== user?.fid && !friendIds.has(r.id)
       );
       setSearchResults(filtered);
     } catch (error) {
@@ -89,9 +90,13 @@ export default function FriendsPage() {
   };
 
   const handleSendRequest = async (userId: string) => {
+    if (!user?.fid) {
+      toast.error("Not authenticated");
+      return;
+    }
     setLoading(true);
     try {
-      await sendFriendRequest(userId);
+      await sendFriendRequest(user.fid, userId);
       toast.success("Friend request sent!");
       setSearchQuery("");
       setSearchResults([]);
@@ -148,10 +153,14 @@ export default function FriendsPage() {
 
   const handleRemove = async (friendshipId: number) => {
     if (!confirm("Are you sure you want to remove this friend?")) return;
+    if (!user?.fid) {
+      toast.error("Not authenticated");
+      return;
+    }
 
     setLoading(true);
     try {
-      await removeFriend(friendshipId);
+      await removeFriend(friendshipId, user.fid);
       toast.success("Friend removed");
       loadData();
     } catch (error) {
@@ -165,8 +174,8 @@ export default function FriendsPage() {
   const handleInviteToGame = async (friendId: string) => {
     setInvitingFriendId(friendId);
     try {
-      const roomCode = await createGameRoom(user?.id);
-      await sendGameInvite(roomCode, friendId);
+      const roomCode = await createGameRoom(user?.fid);
+      await sendGameInvite(roomCode, friendId, user?.fid);
       toast.success("Game invite sent!");
       // Redirect with 'created' flag to indicate we created this room
       router.push(`/?room=${roomCode}&created=true`);

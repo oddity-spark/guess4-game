@@ -402,17 +402,30 @@ export const deleteGameRoom = async (roomCode: string): Promise<void> => {
 };
 
 // Send a game invite to a friend
-export const sendGameInvite = async (roomCode: string, toUserId: string): Promise<void> => {
+export const sendGameInvite = async (roomCode: string, toUserId: string, fromUserId?: string): Promise<void> => {
   const supabase = createClient();
 
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) throw new Error("Not authenticated");
+  // Get from_user_id from localStorage if not provided
+  let currentUserId = fromUserId;
+  if (!currentUserId && typeof window !== "undefined") {
+    const storedUser = localStorage.getItem("farcaster_user");
+    if (storedUser) {
+      try {
+        const parsed = JSON.parse(storedUser);
+        currentUserId = parsed.fid;
+      } catch {
+        // ignore
+      }
+    }
+  }
+
+  if (!currentUserId) throw new Error("Not authenticated");
 
   const { error } = await supabase
     .from("game_invites")
     .insert({
       room_code: roomCode,
-      from_user_id: user.id,
+      from_user_id: currentUserId,
       to_user_id: toUserId,
     });
 

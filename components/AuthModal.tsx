@@ -1,8 +1,6 @@
 "use client";
 
-import { useState } from "react";
-import { signIn, signUp, isUsernameAvailable } from "@/lib/auth";
-import toast from "react-hot-toast";
+import { useAuth } from "@/contexts/AuthContext";
 
 interface AuthModalProps {
   isOpen: boolean;
@@ -10,110 +8,15 @@ interface AuthModalProps {
   onSuccess?: () => void;
 }
 
-type AuthMode = "signin" | "signup";
-
 export default function AuthModal({ isOpen, onClose, onSuccess }: AuthModalProps) {
-  const [mode, setMode] = useState<AuthMode>("signin");
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [username, setUsername] = useState("");
-  const [displayName, setDisplayName] = useState("");
-  const [error, setError] = useState("");
-  const [loading, setLoading] = useState(false);
+  const { signIn, loading } = useAuth();
 
   if (!isOpen) return null;
 
   const handleSignIn = async () => {
-    setError("");
-    setLoading(true);
-
-    try {
-      await signIn(email, password);
-      onSuccess?.();
-      onClose();
-      // Toast notification will be shown by AuthContext
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Failed to sign in";
-      setError(message);
-      toast.error(message);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleSignUp = async () => {
-    setError("");
-
-    // Validation
-    if (!username || username.length < 3) {
-      const msg = "Username must be at least 3 characters";
-      setError(msg);
-      toast.error(msg);
-      return;
-    }
-
-    if (!/^[a-zA-Z0-9_]+$/.test(username)) {
-      const msg = "Username can only contain letters, numbers, and underscores";
-      setError(msg);
-      toast.error(msg);
-      return;
-    }
-
-    if (!email || !email.includes("@")) {
-      const msg = "Please enter a valid email";
-      setError(msg);
-      toast.error(msg);
-      return;
-    }
-
-    if (!password || password.length < 6) {
-      const msg = "Password must be at least 6 characters";
-      setError(msg);
-      toast.error(msg);
-      return;
-    }
-
-    setLoading(true);
-
-    try {
-      // Check if username is available
-      const available = await isUsernameAvailable(username);
-      if (!available) {
-        const msg = "Username is already taken";
-        setError(msg);
-        toast.error(msg);
-        setLoading(false);
-        return;
-      }
-
-      await signUp(email, password, username, displayName || username);
-      onSuccess?.();
-      onClose();
-      // Show success message
-      toast.success("Account created! Please check your email to verify your account.", {
-        duration: 6000,
-      });
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Failed to create account";
-      setError(message);
-      toast.error(message);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (mode === "signin") {
-      handleSignIn();
-    } else {
-      handleSignUp();
-    }
-  };
-
-  const switchMode = () => {
-    setMode(mode === "signin" ? "signup" : "signin");
-    setError("");
+    await signIn();
+    onSuccess?.();
+    onClose();
   };
 
   return (
@@ -121,7 +24,7 @@ export default function AuthModal({ isOpen, onClose, onSuccess }: AuthModalProps
       <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl max-w-md w-full p-6">
         <div className="flex items-center justify-between mb-6">
           <h2 className="text-2xl font-bold text-gray-900 dark:text-white">
-            {mode === "signin" ? "Sign In" : "Create Account"}
+            Sign In with Farcaster
           </h2>
           <button
             onClick={onClose}
@@ -133,109 +36,39 @@ export default function AuthModal({ isOpen, onClose, onSuccess }: AuthModalProps
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-4">
-          {mode === "signup" && (
-            <>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  Username*
-                </label>
-                <input
-                  type="text"
-                  value={username}
-                  onChange={(e) => setUsername(e.target.value.toLowerCase())}
-                  placeholder="cool_player"
-                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:bg-gray-700 dark:text-white"
-                  required
-                />
-                <p className="text-xs text-gray-500 mt-1">Letters, numbers, and underscores only</p>
-              </div>
+        <div className="text-center space-y-6">
+          <div className="text-6xl">🎯</div>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  Display Name
-                </label>
-                <input
-                  type="text"
-                  value={displayName}
-                  onChange={(e) => setDisplayName(e.target.value)}
-                  placeholder="Cool Player (optional)"
-                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:bg-gray-700 dark:text-white"
-                />
-              </div>
-            </>
-          )}
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Email*
-            </label>
-            <input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="you@example.com"
-              autoComplete="email"
-              className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:bg-gray-700 dark:text-white"
-              required
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Password*
-            </label>
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="••••••••"
-              className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:bg-gray-700 dark:text-white"
-              required
-            />
-            {mode === "signup" && (
-              <p className="text-xs text-gray-500 mt-1">At least 6 characters</p>
-            )}
-          </div>
-
-          {error && (
-            <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-3">
-              <p className="text-sm text-red-600 dark:text-red-400">{error}</p>
-            </div>
-          )}
+          <p className="text-gray-600 dark:text-gray-300">
+            Sign in with your Farcaster account to play Guess the Number with friends!
+          </p>
 
           <button
-            type="submit"
+            onClick={handleSignIn}
             disabled={loading}
-            className="w-full bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 disabled:cursor-not-allowed text-white font-bold py-3 px-6 rounded-lg transition-colors flex items-center justify-center"
+            className="w-full bg-purple-600 hover:bg-purple-700 disabled:bg-purple-400 disabled:cursor-not-allowed text-white font-bold py-4 px-6 rounded-lg transition-colors flex items-center justify-center gap-3"
           >
-            {loading && (
-              <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-              </svg>
+            {loading ? (
+              <>
+                <svg className="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                Signing in...
+              </>
+            ) : (
+              <>
+                <svg className="w-6 h-6" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M18.24 0.24H5.76C2.58 0.24 0 2.82 0 6v12c0 3.18 2.58 5.76 5.76 5.76h12.48c3.18 0 5.76-2.58 5.76-5.76V6c0-3.18-2.58-5.76-5.76-5.76zm-1.44 14.4c0 2.58-2.1 4.68-4.68 4.68H7.44V4.68h4.68c2.58 0 4.68 2.1 4.68 4.68v5.28z"/>
+                </svg>
+                Sign in with Farcaster
+              </>
             )}
-            {loading ? "Loading..." : mode === "signin" ? "Sign In" : "Create Account"}
           </button>
-        </form>
 
-        <div className="mt-6 text-center space-y-2">
-          {mode === "signin" && (
-            <div>
-              <a
-                href="/reset-password"
-                className="text-sm text-gray-600 dark:text-gray-400 hover:text-indigo-600 dark:hover:text-indigo-400"
-              >
-                Forgot password?
-              </a>
-            </div>
-          )}
-          <button
-            onClick={switchMode}
-            className="text-sm text-indigo-600 dark:text-indigo-400 hover:underline"
-          >
-            {mode === "signin" ? "Don't have an account? Sign up" : "Already have an account? Sign in"}
-          </button>
+          <p className="text-xs text-gray-500 dark:text-gray-400">
+            Your Farcaster identity will be used as your game profile
+          </p>
         </div>
       </div>
     </div>

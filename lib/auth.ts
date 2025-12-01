@@ -21,58 +21,88 @@ export interface UserStats {
   last_played_at: string | null;
 }
 
-// Sign up with email and password
-export const signUp = async (
-  email: string,
-  password: string,
+// Get or create user profile (for Farcaster auth)
+export const getOrCreateProfile = async (
+  fid: string,
   username: string,
-  displayName?: string
-) => {
+  displayName?: string,
+  avatarUrl?: string
+): Promise<UserProfile> => {
   const supabase = createClient();
-  const { data, error } = await supabase.auth.signUp({
-    email,
-    password,
-    options: {
-      data: {
-        username,
-        display_name: displayName || username,
-      },
-    },
-  });
+  console.log("👤 getOrCreateProfile: Looking for FID:", fid);
 
-  if (error) throw error;
-  return data;
-};
+  // First, try to get existing profile
+  const { data: existingProfile } = await supabase
+    .from("user_profiles")
+    .select("*")
+    .eq("id", fid)
+    .single();
 
-// Sign in with email and password
-export const signIn = async (email: string, password: string) => {
-  const supabase = createClient();
-  const { data, error } = await supabase.auth.signInWithPassword({
-    email,
-    password,
-  });
+  if (existingProfile) {
+    console.log("👤 getOrCreateProfile: Found existing profile:", existingProfile);
 
-  if (error) throw error;
-  return data;
-};
+    // Update profile if Farcaster data changed
+    if (
+      existingProfile.username !== username ||
+      existingProfile.display_name !== (displayName || username) ||
+      existingProfile.avatar_url !== avatarUrl
+    ) {
+      const { data: updatedProfile, error: updateError } = await supabase
+        .from("user_profiles")
+        .update({
+          username,
+          display_name: displayName || username,
+          avatar_url: avatarUrl,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", fid)
+        .select()
+        .single();
 
-// Sign out
-export const signOut = async () => {
-  const supabase = createClient();
-  const { error } = await supabase.auth.signOut();
-  if (error) throw error;
-};
+      if (updateError) {
+        console.error("❌ Failed to update profile:", updateError);
+        return existingProfile;
+      }
 
-// Get current user
-export const getCurrentUser = async () => {
-  const supabase = createClient();
-  const {
-    data: { user },
-    error,
-  } = await supabase.auth.getUser();
+      console.log("👤 getOrCreateProfile: Updated profile:", updatedProfile);
+      return updatedProfile;
+    }
 
-  if (error) throw error;
-  return user;
+    return existingProfile;
+  }
+
+  // Profile doesn't exist, create it
+  console.log("👤 getOrCreateProfile: Creating new profile for FID:", fid);
+
+  const { data: newProfile, error: createError } = await supabase
+    .from("user_profiles")
+    .insert({
+      id: fid,
+      username,
+      display_name: displayName || username,
+      avatar_url: avatarUrl,
+    })
+    .select()
+    .single();
+
+  if (createError) {
+    console.error("❌ Failed to create profile:", createError);
+    throw new Error(`Failed to create user profile: ${createError.message}`);
+  }
+
+  // Also create user stats record
+  const { error: statsError } = await supabase
+    .from("user_stats")
+    .insert({ user_id: fid })
+    .single();
+
+  if (statsError && statsError.code !== "23505") {
+    // Ignore duplicate key error
+    console.error("❌ Failed to create stats:", statsError);
+  }
+
+  console.log("✅ getOrCreateProfile: Created new profile:", newProfile);
+  return newProfile;
 };
 
 // Get user profile
@@ -92,13 +122,13 @@ export const getUserProfile = async (
     console.log("👤 getUserProfile: Result:", { data, error, hasData: !!data });
 
     if (error) {
+      if (error.code === "PGRST116") {
+        // No rows returned - profile doesn't exist
+        console.log("👤 getUserProfile: Profile not found for user:", userId);
+        return null;
+      }
       console.error("❌ Error fetching user profile:", error);
       throw new Error(`Failed to fetch user profile: ${error.message}`);
-    }
-
-    if (!data) {
-      console.error("❌ No profile data returned for user:", userId);
-      throw new Error("Profile not found");
     }
 
     console.log("✅ getUserProfile: Profile fetched successfully:", data);

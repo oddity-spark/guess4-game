@@ -131,7 +131,7 @@ export default function Home() {
     }
 
     // Priority 2: Check for active room (page reload/return)
-    getUserActiveRoom(user.id)
+    getUserActiveRoom(user.fid)
       .then((activeRoom) => {
         if (!isMounted) return; // Don't update state if unmounted
 
@@ -386,7 +386,7 @@ export default function Home() {
     }
 
     try {
-      const code = await createRoom(user.id, selectedTimeControl);
+      const code = await createRoom(user.fid, selectedTimeControl);
       setRoomCode(code);
       setPlayerNumber(1);
       setPhase("setup");
@@ -413,7 +413,7 @@ export default function Home() {
     }
 
     try {
-      const success = await joinRoom(roomCodeToJoin, user.id);
+      const success = await joinRoom(roomCodeToJoin, user.fid);
       if (success) {
         // When joining an existing room, you are always Player 2
         setRoomCode(roomCodeToJoin);
@@ -558,7 +558,7 @@ export default function Home() {
 
     setInvitingFriendId(friendId);
     try {
-      const code = await createRoom(user.id, selectedTimeControl);
+      const code = await createRoom(user.fid, selectedTimeControl);
       await sendGameInvite(code, friendId);
 
       // Transition to waiting state with room info
@@ -586,7 +586,7 @@ export default function Home() {
     if (!confirmLeave) return;
 
     try {
-      const success = await leaveGame(roomCode, user.id, playerNumber);
+      const success = await leaveGame(roomCode, user.fid, playerNumber);
       if (success) {
         // Reset all game state
         setRoomCode("");

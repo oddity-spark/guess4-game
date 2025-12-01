@@ -50,17 +50,16 @@ export const searchUsers = async (query: string): Promise<Array<{
 };
 
 // Send a friend request
-export const sendFriendRequest = async (toUserId: string): Promise<void> => {
+export const sendFriendRequest = async (fromUserId: string, toUserId: string): Promise<void> => {
   const supabase = createClient();
 
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) throw new Error("Not authenticated");
+  if (!fromUserId) throw new Error("Not authenticated");
 
   // Check if already friends or request exists
   const { data: existingRequest } = await supabase
     .from("friend_requests")
     .select("id, status")
-    .or(`and(from_user_id.eq.${user.id},to_user_id.eq.${toUserId}),and(from_user_id.eq.${toUserId},to_user_id.eq.${user.id})`)
+    .or(`and(from_user_id.eq.${fromUserId},to_user_id.eq.${toUserId}),and(from_user_id.eq.${toUserId},to_user_id.eq.${fromUserId})`)
     .single();
 
   if (existingRequest) {
@@ -74,7 +73,7 @@ export const sendFriendRequest = async (toUserId: string): Promise<void> => {
   const { error } = await supabase
     .from("friend_requests")
     .insert({
-      from_user_id: user.id,
+      from_user_id: fromUserId,
       to_user_id: toUserId,
       status: "pending",
     });
@@ -86,11 +85,10 @@ export const sendFriendRequest = async (toUserId: string): Promise<void> => {
 };
 
 // Get incoming friend requests
-export const getIncomingFriendRequests = async (): Promise<FriendRequest[]> => {
+export const getIncomingFriendRequests = async (userId: string): Promise<FriendRequest[]> => {
   const supabase = createClient();
 
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) throw new Error("Not authenticated");
+  if (!userId) throw new Error("Not authenticated");
 
   const { data, error } = await supabase
     .from("friend_requests")
@@ -98,7 +96,7 @@ export const getIncomingFriendRequests = async (): Promise<FriendRequest[]> => {
       *,
       from_user:user_profiles!friend_requests_from_user_id_fkey(username, display_name)
     `)
-    .eq("to_user_id", user.id)
+    .eq("to_user_id", userId)
     .eq("status", "pending")
     .order("created_at", { ascending: false });
 
@@ -111,11 +109,10 @@ export const getIncomingFriendRequests = async (): Promise<FriendRequest[]> => {
 };
 
 // Get outgoing friend requests
-export const getOutgoingFriendRequests = async (): Promise<FriendRequest[]> => {
+export const getOutgoingFriendRequests = async (userId: string): Promise<FriendRequest[]> => {
   const supabase = createClient();
 
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) throw new Error("Not authenticated");
+  if (!userId) throw new Error("Not authenticated");
 
   const { data, error } = await supabase
     .from("friend_requests")
@@ -123,7 +120,7 @@ export const getOutgoingFriendRequests = async (): Promise<FriendRequest[]> => {
       *,
       to_user:user_profiles!friend_requests_to_user_id_fkey(username, display_name)
     `)
-    .eq("from_user_id", user.id)
+    .eq("from_user_id", userId)
     .eq("status", "pending")
     .order("created_at", { ascending: false });
 
@@ -181,11 +178,24 @@ export const cancelFriendRequest = async (requestId: number): Promise<void> => {
 };
 
 // Get list of friends
-export const getFriends = async (): Promise<Friend[]> => {
+export const getFriends = async (userId?: string): Promise<Friend[]> => {
   const supabase = createClient();
 
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) throw new Error("Not authenticated");
+  // If no userId provided, get from localStorage (for backward compatibility)
+  let currentUserId = userId;
+  if (!currentUserId && typeof window !== "undefined") {
+    const storedUser = localStorage.getItem("farcaster_user");
+    if (storedUser) {
+      try {
+        const parsed = JSON.parse(storedUser);
+        currentUserId = parsed.fid;
+      } catch {
+        // ignore
+      }
+    }
+  }
+
+  if (!currentUserId) throw new Error("Not authenticated");
 
   const { data, error } = await supabase
     .from("friendships")
@@ -193,7 +203,7 @@ export const getFriends = async (): Promise<Friend[]> => {
       *,
       friend_profile:user_profiles!friendships_friend_id_fkey(username, display_name)
     `)
-    .eq("user_id", user.id)
+    .eq("user_id", currentUserId)
     .order("created_at", { ascending: false });
 
   if (error) {
@@ -205,18 +215,17 @@ export const getFriends = async (): Promise<Friend[]> => {
 };
 
 // Remove a friend (unfriend)
-export const removeFriend = async (friendshipId: number): Promise<void> => {
+export const removeFriend = async (friendshipId: number, userId: string): Promise<void> => {
   const supabase = createClient();
 
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) throw new Error("Not authenticated");
+  if (!userId) throw new Error("Not authenticated");
 
   // Get the friendship to find the friend_id
   const { data: friendship } = await supabase
     .from("friendships")
     .select("friend_id")
     .eq("id", friendshipId)
-    .eq("user_id", user.id)
+    .eq("user_id", userId)
     .single();
 
   if (!friendship) {
@@ -227,14 +236,14 @@ export const removeFriend = async (friendshipId: number): Promise<void> => {
   const { error: error1 } = await supabase
     .from("friendships")
     .delete()
-    .eq("user_id", user.id)
+    .eq("user_id", userId)
     .eq("friend_id", friendship.friend_id);
 
   const { error: error2 } = await supabase
     .from("friendships")
     .delete()
     .eq("user_id", friendship.friend_id)
-    .eq("friend_id", user.id);
+    .eq("friend_id", userId);
 
   if (error1 || error2) {
     console.error("Error removing friend:", error1 || error2);

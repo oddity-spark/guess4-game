@@ -14,7 +14,7 @@ export default function StatsPage() {
   >("games_won");
 
   // Use custom hooks
-  const { stats, loading: statsLoading } = useUserStats(user?.id);
+  const { stats, loading: statsLoading } = useUserStats(user?.fid);
   const { leaderboard, loading: leaderboardLoading } = useLeaderboard(
     leaderboardType,
     10
@@ -225,7 +225,7 @@ export default function StatsPage() {
               <div
                 key={entry.user_id}
                 className={`flex items-center gap-4 p-4 rounded-lg ${
-                  entry.user_id === user?.id
+                  entry.user_id === user?.fid
                     ? "bg-indigo-100 dark:bg-indigo-900/30 border-2 border-indigo-500"
                     : "bg-gray-50 dark:bg-gray-700"
                 }`}
@@ -251,7 +251,7 @@ export default function StatsPage() {
                 <div className="flex-1">
                   <div className="font-medium text-gray-900 dark:text-white">
                     {entry.display_name || entry.username}
-                    {entry.user_id === user?.id && (
+                    {entry.user_id === user?.fid && (
                       <span className="ml-2 text-xs text-indigo-600 dark:text-indigo-400">
                         (You)
                       </span>
