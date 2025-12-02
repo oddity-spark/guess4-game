@@ -11,6 +11,17 @@ export async function generateMetadata(): Promise<Metadata> {
   return {
     title: minikitConfig.miniapp.name,
     description: minikitConfig.miniapp.description,
+    openGraph: {
+      title: 'Guess the Number',
+      description: 'Can you guess the number?',
+      images: ['https://guess4-game.vercel.app/splash.png'],
+    },
+    twitter: {
+      card: 'summary_large_image',
+      title: 'Guess the Number',
+      description: 'Can you guess the number?',
+      images: ['https://guess4-game.vercel.app/splash.png'],
+    },
     other: {
       "fc:frame": JSON.stringify({
         version: minikitConfig.miniapp.version,
